@@ -109,6 +109,27 @@ Explicitly rejected: diffusion residuals, SDS/score distillation, 2D foundation 
   with re-rasterize.
 - MVImgNet training-set regeneration cost (4k scenes × 3DGS training) — budget GPU-weeks?
 
+## T2.1 progress (2026-06-12, branch `t2.1-octree-ptv3`)
+
+**Key discovery (paper framing):** PTV3's `SerializedPooling` IS uniform-depth octree
+pooling (`code >> 3` = parent cell). Our method is a strict generalization:
+importance-weighted adaptive leaf depths + depth-tagged group keys + per-stage target
+depths. Full design: `docs/t2.1-octree-design.md`.
+
+Implemented & tested (commits f4d595f, 2832139):
+- `models/adaptive_octree.py` — leaf-depth assignment (weighted), group keys,
+  stage grid coords (cell centers, bit-masking only — pointcept's z-order *decode* is
+  broken upstream, avoided), octree features, `AdaptiveSerializedPooling`.
+- `models/octree_ptv3.py` — backbone + `OctreePTV3Model` gin wrapper.
+- `FeaturePredictor` `backbone_type='OctreePT'`; `importance` kwarg plumbed (T3.1 hook).
+- `configs/model/octree_ptv3.gin` — default d_max=12, leaf_k=1, schedule (12,9,8,7).
+- Tests all green: degenerate partition == baseline partition (the strict-generalization
+  check); zero-init identity exact at FeaturePredictor level; grads 496/496 after
+  unblocking heads (exactly 12 at zero-init — expected, the zero last layers block
+  upstream flow); real-scene (44k gs) fwd+bwd peak 12.3 GB.
+- Baseline-semantics note: stride=(1,2,2,2) means first "pooling" is a stride-1 dedupe
+  at depth 9; degenerate config is therefore d_max=9 + schedule (9,8,7,6).
+
 ## Experiment log
 
 | Date | Branch | Config | PSNR (Obj/GSO/Real/ShapeNet) | Notes |
@@ -117,10 +138,15 @@ Explicitly rejected: diffusion residuals, SDS/score distillation, 2D foundation 
 
 ## Next session pickup point
 
-> **Start T1.1 (visibility features).** Plan is fully specced in the conversation
-> notes: new `utils/visibility.py` (frustum test → 5 per-Gaussian features),
-> inject in `dataset/GS.py:__iter__`, add `'visibility'` to
-> `FeaturePredictor.input_features` + `FEATURE2CHANNEL`. Then train on Objaverse-OOD
-> and compare to the 23.03 baseline. Before training: also need the *training set*
-> (train-set/objaverseOOD), which is NOT yet downloaded — the small subset link is in
-> the upstream README.
+> **T2.1 validation (task 6): training smoke + degenerate-equivalence training.**
+> 1. Download the train subset (link in upstream README, "small subset of our training
+>    set") into `train-set/objaverseOOD/`.
+> 2. Short training run (~2k steps, 3 GPUs) with `configs/model/octree_ptv3.gin` —
+>    verify losses decrease, no OOM with render-loss in the loop.
+> 3. Same-steps comparison: uniform baseline (ptv3.gin) vs octree degenerate config
+>    (d_max=9, schedule (9,8,7,6)) — loss curves should match closely; then default
+>    octree config — should match or beat.
+> 4. Then T1.1 (visibility features) on its branch; T3.1 = importance from visibility
+>    (the `importance` kwarg is already plumbed into FeaturePredictor/OctreePT).
+> Watch item: peak memory with rendering losses (12.3 GB fwd+bwd at 44k gs; scenes go
+> up to 100k → may need grad checkpointing or schedule (10,9,8,7)).
