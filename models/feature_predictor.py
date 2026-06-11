@@ -63,6 +63,9 @@ class FeaturePredictor(nn.Module):
             self.backbone = SparseConvModel(in_channels=in_channels)
         elif backbone_type == 'PT':
             self.backbone = PointTransformerV3Model(in_channels=in_channels)
+        elif backbone_type == 'OctreePT':
+            from .octree_ptv3 import OctreePTV3Model
+            self.backbone = OctreePTV3Model(in_channels=in_channels)
         else:
             raise NotImplementedError
         head_input_dim = self.backbone.output_dim
@@ -152,12 +155,22 @@ class FeaturePredictor(nn.Module):
                 'feat': feat,
             }
             model_input['grid_coord'] = torch.floor(model_input['coord']*self.grid_resolution).int() #[0~1]/
+        elif self.backbone_type == 'OctreePT':
+            # Octree backbone discretizes internally (d_max); optionally takes
+            # per-Gaussian importance weights for the adaptive octree (T3.1).
+            model_input = {
+                'coord': torch.cat([gs['means'] for gs in batch_normalized_gs], dim=0),
+                'offset': offset.to(device),
+                'feat': feat,
+            }
+            if 'importance' in kwargs and kwargs['importance'] is not None:
+                model_input['importance'] = kwargs['importance']
         else:
             raise NotImplementedError
 
         y = self.backbone(model_input)
 
-        if self.backbone_type in ['PT']:
+        if self.backbone_type in ['PT', 'OctreePT']:
             y = y['feat']
 
         hidden_features = y
@@ -185,7 +198,7 @@ class FeaturePredictor(nn.Module):
 
         #-2. Unbatchify
         out_batch_normalized_gs = []
-        if self.backbone_type in ['PT','SP']:
+        if self.backbone_type in ['PT','SP','OctreePT']:
             left = 0
             for ii,(right, in_gs) in enumerate(zip(offset, batch_normalized_gs)):
                 out_normalized_gs = {}
