@@ -162,3 +162,12 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# --- splatformer-ext: local data & artifacts (do not commit) ---
+checkpoints/
+outputs/
+test-set/
+test-set.zip
+train-set/
+*.ckpt
+*.pth
