@@ -1,4 +1,4 @@
-torchrun --nnodes=1 --nproc_per_node=1 --rdzv-endpoint=localhost:29518 \
+torchrun --nnodes=1 --nproc_per_node=3 --rdzv-endpoint=localhost:29518 \
     train.py \
     --output_dir=outputs/shapenet_splatformer \
     --gin_file=configs/dataset/shapenet.gin \
@@ -9,6 +9,6 @@ torchrun --nnodes=1 --nproc_per_node=1 --rdzv-endpoint=localhost:29518 \
     --gin_param="FeaturePredictor.sh_degree=0" \
     --gin_param="build_trainloader.batch_size=1" \
     --only_eval --eval_subdir test --compare_with_input \
-    --gin_param="FeaturePredictor.resume_ckpt='/path/to/checkpoint'" 
+    --gin_param="FeaturePredictor.resume_ckpt='checkpoints/shapenet_splatformer.ckpt'"
 
 
