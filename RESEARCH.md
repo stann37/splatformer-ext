@@ -109,6 +109,28 @@ Explicitly rejected: diffusion residuals, SDS/score distillation, 2D foundation 
   with re-rasterize.
 - MVImgNet training-set regeneration cost (4k scenes × 3DGS training) — budget GPU-weeks?
 
+## T1.1 progress (2026-06-13, branch `t1.1-visibility`)
+
+Implemented + all tests green (commit 30e8548): 7 per-Gaussian frustum-visibility
+features (poses only): coverage_tr/te, disagreement, diversity_tr/te, dir_shift,
+elev_shift. Computed in `dataset/GS.py:load_scene` in normalized space; camera
+convention cross-checked against gsplat rendering.
+
+**Design findings (empirically validated):**
+- Frustum coverage saturates (~1.0) on object-centric scenes — wide FoV puts the whole
+  object in every frustum and there is no occlusion modeling -> `disagreement` ~ 0
+  there. It should become informative on unbounded/real captures (T1.3 + MVImgNet).
+- The informative object-centric signals are *angular*: on a real Objaverse-OOD scene,
+  div_te=0.03 vs div_tr=0.86 and elev_shift=-0.85 (test views clustered top-down vs
+  ringed training views).
+- Mean-direction shift degenerates under ring symmetry (resultant collapses);
+  elevation shift is the robust complement. Both kept (azimuth-OOD vs elevation-OOD).
+
+Next for T1.1: training comparison (ptv3_visibility.gin vs ptv3.gin) on the train
+subset — needs GPUs free of the T2.1 soak. Then T3.1: feed
+`0.5*(div_tr - div_te) + |elev_shift|`-style importance into OctreePT's
+`importance` input (already plumbed).
+
 ## Experiment log
 
 | Date | Branch | Config | PSNR (Obj/GSO/Real/ShapeNet) | Notes |
