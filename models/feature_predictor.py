@@ -5,6 +5,7 @@ import torch.nn as nn
 from collections import OrderedDict
 from .pointtransformer_v3 import PointTransformerV3Model
 from .spconv import SparseConvModel
+from .octree_ptv3 import OctreePTV3Model
 import gin 
 gin.external_configurable(torch.nn.Identity)
 gin.external_configurable(torch.nn.Tanh)
@@ -64,7 +65,6 @@ class FeaturePredictor(nn.Module):
         elif backbone_type == 'PT':
             self.backbone = PointTransformerV3Model(in_channels=in_channels)
         elif backbone_type == 'OctreePT':
-            from .octree_ptv3 import OctreePTV3Model
             self.backbone = OctreePTV3Model(in_channels=in_channels)
         else:
             raise NotImplementedError
