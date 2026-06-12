@@ -19,6 +19,7 @@ FEATURE2CHANNEL = {
     'opacities': 1,
     'scales': 3,
     'quats': 4,
+    'visibility': 7,  # T1.1: frustum-visibility features (input-only, never predicted)
 }
 ALL_FEATURES = ['means','features_dc','features_rest','opacities','scales','quats']
 @gin.configurable

@@ -146,7 +146,11 @@ class SplatfactoDataset(torch.utils.data.IterableDataset):
 
     def load_gs_params_fromnerfstudio(self, nerfstudio_dir, idx):
         skip_params = gin.query_parameter('FeaturePredictor.input_features')
-        if gin.query_parameter("training.pretrain_steps") > 0:
+        try:
+            pretrain_steps = gin.query_parameter("training.pretrain_steps")
+        except ValueError:
+            pretrain_steps = 0  # eval-only usage without the training config loaded
+        if pretrain_steps > 0:
             skip_params = skip_params+gin.query_parameter('create_pseudo_target.take_from_input')
         try:
             ckpt_file = glob.glob(nerfstudio_dir + '/nerfstudio_models/step-*.ckpt')[-1] #Take the last checkpoint
@@ -155,7 +159,9 @@ class SplatfactoDataset(torch.utils.data.IterableDataset):
             exit()
         ckpt = torch.load(ckpt_file, map_location='cpu')
         ckpt = {k.replace('_model.gauss_params.',''):v for k,v in ckpt.items() if 'gauss_params' in k}
-        gs_params = {k:ckpt[k] for k in set(skip_params)}
+        # input_features may include derived features (e.g. 'visibility') that are
+        # computed later in load_scene rather than stored in the 3DGS checkpoint
+        gs_params = {k:ckpt[k] for k in set(skip_params) if k in ckpt}
         
         # Remove inf or nan
         select = torch.ones(gs_params['means'].shape[0], dtype=torch.bool)
@@ -309,7 +315,20 @@ class SplatfactoDataset(torch.utils.data.IterableDataset):
         meta['train_camera_to_worlds'][:,:3,-1] = scaler.transform(meta['train_camera_to_worlds'][:,:3,-1])
         meta['test_camera_to_worlds'][:,:3,-1] = scaler.transform(meta['test_camera_to_worlds'][:,:3,-1])
 
-        outputs = {'gs_params': gs_params, 'meta': meta, 'idx': idx, 
+        # T1.1: per-Gaussian frustum-visibility features against the FULL train/test
+        # camera sets (poses only, no image content). Computed in normalized space —
+        # both means and camera translations are already scaler-transformed here.
+        if 'visibility' in gin.query_parameter('FeaturePredictor.input_features'):
+            from utils.visibility import compute_visibility_features
+            gs_params['visibility'] = compute_visibility_features(
+                gs_params['means'],
+                meta['train_camera_to_worlds'],
+                meta['test_camera_to_worlds'],
+                meta['fx'], meta['fy'], meta['cx'], meta['cy'],
+                meta['width'], meta['height'],
+            )
+
+        outputs = {'gs_params': gs_params, 'meta': meta, 'idx': idx,
                 'scene_name': nerfstudio_dir.split('/')[-2], #The basename is splatfacto
                 'train_imgs_path': train_imgs_path,
                 'test_imgs_path': test_imgs_path}
