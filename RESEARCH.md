@@ -160,6 +160,35 @@ A crash mid-soak (spconv `implicit_gemm` TensorStorage error at step ~4900, tran
 likely a fragmentation/contention hiccup) was fixed by rerunning with
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` on all 3 GPUs.
 
+## T2.1 usefulness on unbounded scenes (2026-06-13, synthetic stress test)
+
+`scripts/unbounded_stress_test.py`: real foreground object + injected background
+(far shell + ground plane), MinMax-normalized exactly as the pipeline does, then we
+measure how much *foreground* spatial resolution / token budget survives. No trained
+model needed — this isolates the structural variable the octree targets.
+
+Real Objaverse scene (44k fg gs) + synthetic background:
+
+| bg severity | fg % of box | baseline G=384 fg cells/axis | octree fg cells/axis | gain |
+|-------------|-------------|------------------------------|----------------------|------|
+| 10x radius, 2x count | 6.2% | 14.0 | 33.6 | **2.4x** |
+| 20x radius, 3x count | 3.1% | 8.5  | 31.1 | **3.6x** |
+
+The worse the unbounded background, the bigger the octree's advantage — exactly the
+regime where the paper's own MVImgNet attempt struggled.
+
+**Importance weighting (T3.1 preview):** downweighting background (w=0.05) lifts the
+foreground's *share* of the token budget at the input stage from **19% -> 62%** (bg 20x);
+background tokens collapse 161841 -> 48709. Same fg tokens, far cheaper, higher fg share.
+
+**Design finding that motivates T1.3:** the *absolute* depth schedule (12,9,8,7) still
+over-pools the foreground at deep stages on unbounded scenes (at 3% box occupancy, the
+fg holds only ~1164 tokens by stage-depth 9). The fix is contraction (T1.3): re-center
++ scale so the foreground fills the unit ball, making the absolute schedule appropriate
+again. So octree (resolution) and contraction (placement) are complementary, not
+redundant — octree alone recovers input-stage resolution; contraction is needed for the
+deeper stages to keep foreground capacity. This is the concrete case for doing T1.3 next.
+
 ## Experiment log
 
 | Date | Branch | Config | PSNR (Obj/GSO/Real/ShapeNet) | Notes |
