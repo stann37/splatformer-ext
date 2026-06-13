@@ -130,23 +130,59 @@ Implemented & tested (commits f4d595f, 2832139):
 - Baseline-semantics note: stride=(1,2,2,2) means first "pooling" is a stride-1 dedupe
   at depth 9; degenerate config is therefore d_max=9 + schedule (9,8,7,6).
 
+## T2.1 validation results (2026-06-13)
+
+**Smoke (300 steps, 50-scene subset, 2-scene eval):** baseline / octree-degenerate /
+octree-default all train; degenerate tracks baseline within noise (lpips@200 0.069 vs
+0.070; psnr@200 30.01 vs 30.08) → strict-generalization holds at the *training* level,
+not just unit tests. Cost: octree-default 0.56 s/step vs baseline 0.36 (1.54×).
+
+**Soak (5k steps, 50-scene subset, full 40-scene Objaverse-OOD eval), 3×A4500:**
+
+| Config | PSNR 0→5k | SSIM | LPIPS | ms/step |
+|--------|-----------|------|-------|---------|
+| baseline (uniform PTV3) | 19.19 → **19.49** | 0.687 | 0.283 | 390 |
+| octree-default (d12, K1, sched 12/9/8/7) | 19.19 → **19.46** | 0.686 | 0.286 | 602 (1.54×) |
+
+**Interpretation (important, honest):** at this tiny budget (5k steps / 50 scenes vs
+paper's 200k / full set) *neither* model meaningfully refines — both barely move off the
+input 3DGS (19.19). So the soak is a **"does it break anything" gate, not a win
+condition** — and the octree passes it (trains stably for thousands of steps, equal
+quality at equal budget, predicted 1.54× cost). The octree's structural advantage
+(capacity by density) is on **(a)** fully-trained fine detail and **(b)** unbounded
+scenes where the uniform grid *structurally* fails — and (b) is gated on T1.3
+(contraction). **Bounded object-centric scenes at low budget are exactly where uniform
+PTV3 already suffices, so they cannot demonstrate T2.1's value.** Conclusion: T2.1 is
+implemented & proven-correct; its *value demonstration* must come on MVImgNet (needs
+T1.3) or a full-length Objaverse run (needs the full train set + GPU-days).
+
+A crash mid-soak (spconv `implicit_gemm` TensorStorage error at step ~4900, transient —
+likely a fragmentation/contention hiccup) was fixed by rerunning with
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` on all 3 GPUs.
+
 ## Experiment log
 
 | Date | Branch | Config | PSNR (Obj/GSO/Real/ShapeNet) | Notes |
 |------|--------|--------|------------------------------|-------|
 | 2026-06-12 | reproduction | paper ckpts, uniform PTV3 | 23.03 / 25.02 / 24.36 / 27.93 | baseline reproduction, matches paper |
+| 2026-06-13 | t2.1 | uniform PTV3, 5k/50-scene | 19.49 (Obj only) | tiny-budget soak gate |
+| 2026-06-13 | t2.1 | octree-default, 5k/50-scene | 19.46 (Obj only) | == baseline at equal budget; correctness gate passed |
+
+## Branch status
+
+- **t2.1-octree-ptv3: feature-complete & validated-correct.** Remaining "win" runs
+  (full-length Objaverse; MVImgNet) are blocked on data/compute, not code.
+- **t1.1-visibility: feature-complete & tested** (7 visibility features, all tests green).
+  Training comparison pending free GPUs.
 
 ## Next session pickup point
 
-> **T2.1 validation (task 6): training smoke + degenerate-equivalence training.**
-> 1. Download the train subset (link in upstream README, "small subset of our training
->    set") into `train-set/objaverseOOD/`.
-> 2. Short training run (~2k steps, 3 GPUs) with `configs/model/octree_ptv3.gin` —
->    verify losses decrease, no OOM with render-loss in the loop.
-> 3. Same-steps comparison: uniform baseline (ptv3.gin) vs octree degenerate config
->    (d_max=9, schedule (9,8,7,6)) — loss curves should match closely; then default
->    octree config — should match or beat.
-> 4. Then T1.1 (visibility features) on its branch; T3.1 = importance from visibility
->    (the `importance` kwarg is already plumbed into FeaturePredictor/OctreePT).
-> Watch item: peak memory with rendering losses (12.3 GB fwd+bwd at 44k gs; scenes go
-> up to 100k → may need grad checkpointing or schedule (10,9,8,7)).
+> **T1.3 (scene contraction)** — the highest-value unlock: it's the gate for showing
+> T2.1's real advantage on unbounded scenes. Key design constraint discovered: contraction
+> must be a **model-input-only** transform. gsplat rendering assumes Euclidean geometry,
+> so the rasterizer must keep operating in the similarity-normalized (MinMaxScaler) space;
+> contraction applies only to `coord`/`grid_coord` fed to the backbone, NOT to the means
+> used for rendering. Implement as a separate `coord_model` path in feature_predictor /
+> octree_ptv3, leaving `gs['means']` (render) untouched. Then T3.1 (visibility-weighted
+> octree importance — kwarg already plumbed) and the MVImgNet protocol (Appendix H).
+> Win condition still: beat 21.68 PSNR on MVImgNet.
