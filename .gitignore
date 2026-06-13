@@ -171,3 +171,8 @@ test-set.zip
 train-set/
 *.ckpt
 *.pth
+
+# T2.1 smoke/soak artifacts
+test-set-smoke/
+train-subset.zip
+train-set/
